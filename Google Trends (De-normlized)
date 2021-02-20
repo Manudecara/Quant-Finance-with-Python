@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Feb 14 19:17:20 2021
+
+@author: manu
+"""
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+from datetime import date, datetime, timedelta
+from pytrends.request import TrendReq
+import time
+import pandas as pd
+import matplotlib
+import gtrends
+
+pytrend = TrendReq(hl='en-US')
+keyword = 'bitcoin'
+start = '2016-01-01'
+end = '2021-02-12'
+geo='US'
+cat=0
+gprop=''
+
+from pytrends import dailydata
+
+start_d = datetime.strptime(start, '%Y-%m-%d')
+end_d = datetime.strptime(end, '%Y-%m-%d')
+s_year = start_d.year
+s_mon = start_d.month
+e_year = end_d.year
+e_mon = end_d.month
+
+dailydata = dailydata.get_daily_data(word= keyword,
+                 start_year= s_year,
+                 start_mon= s_mon,
+                 stop_year= e_year,
+                 stop_mon= e_mon,
+                 geo= geo,
+                 verbose= False,
+                 wait_time = 1.0)
+
+dailydata['bitcoin'].plot(figsize=(15,10))
+dailydata.to_csv('BTC_GoogleTrends.csv')
+google_trends = pd.read_csv('~/Quant Finance/OakTree & Lion/BTC_GoogleTrends.csv')

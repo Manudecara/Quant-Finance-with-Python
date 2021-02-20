@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jan 13 22:21:53 2021
+
+@author: manu
+"""
+
+#General
+from datetime import datetime
+from pandas_datareader import data as pdr
+from collections import Counter
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns 
+from plotnine import *
+
+#General Sklearn
+from sklearn.model_selection import train_test_split
+import sklearn.model_selection
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn import preprocessing
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import Normalizer
+
+#Unsupervised Learning 
+from sklearn import mixture as mix
+from sklearn.mixture import GaussianMixture
+
+#Supervised Learning
+#KNN
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.neighbors import DistanceMetric
+
+#Optuna
+import optuna
+from optuna.visualization import plot_edf
+from optuna.visualization import plot_intermediate_values
+from optuna.visualization import plot_optimization_history
+from optuna.visualization import plot_param_importances
+
+#Get Data
+df = pdr.DataReader("ETH-USD",  "yahoo", datetime(2014,1,1), datetime(2021,1,1))
+df.head()
+df.info()
+df = df[~df.index.duplicated()]
+df['Volume'] = df['Volume'].astype(float)
+df['Volume'] = df['Volume']/1000
+df['Open'] = df['Open'].shift(1)
+df['High'] = df['High'].shift(1)
+df['Low'] = df['Low'].shift(1)
+df['Close'] = df['Close'].shift(1)
+df['Volume'] = df['Volume'].shift(1)
+df = df[['High','Low','Open','Close', 'Volume']]
+df = df.dropna()
+df.info()
+type(df)
+type(df.index)
+
+#Define a method to identify Market 'States'
+def StateMeasures(method):
+    
+    if (method == 'manual'):
+        def ManualStates(data, style, variable, days, days_character, date, t1, t2):
+           df['Up_Trend'] = ((variable.pct_change(freq = days_character) * 100) > t1)
+           df['Up_Trend'] = df['Up_Trend'].shift(-1) 
+           df['Up_Trend'] = df['Up_Trend'].replace(np.nan, False)
+           df['Up_Trend'] = df['Up_Trend'].astype(int)
+           df['Dn_Trend'] = ((variable.pct_change(freq = days_character) * 100) < t2)
+           df['Dn_Trend'] = df['Dn_Trend'].shift(-1) 
+           df['Dn_Trend'] = df['Dn_Trend'].replace(np.nan, False)
+           df['Dn_Trend'] = df['Dn_Trend'].astype(int)
+           df['State'] = 2
+           df['State'][(df['Up_Trend'] == 1)] = 3
+           df['State'][(df['Dn_Trend'] == 1)] = 1
+           df['State'][(df['Up_Trend'] + df['Dn_Trend']) == 4] = 2
+           print(df['State'].value_counts())
+           df.drop(['Up_Trend', 'Dn_Trend'], axis = 1, inplace = True)
+           df.info()
+                
+        ManualStates(data = df,
+        style = 'range',
+        variable = df['Close'],
+        days = 1,
+        days_character = '5D',
+        date = df.index,
+        t1 = 5,
+        t2 = -5)
+    
+    elif (method == 'gaussianmixture'):    
+        def GaussianMixtureStates(n_components, covariance_type, n_init, random_state):
+            unsup = mix.GaussianMixture(n_components = n_components, 
+                                        covariance_type = covariance_type, 
+                                        n_init = n_init, 
+                                        random_state = random_state)
+            X = df.values.reshape(-1, 1)
+            n_components = np.arange(1, 21)
+            models = [GaussianMixture(n, covariance_type = covariance_type, random_state = random_state).fit(X)
+            for n in n_components]
+            plt.plot(n_components, [m.bic(X) for m in models], label='BIC')
+            plt.plot(n_components, [m.aic(X) for m in models], label='AIC')
+            plt.legend(loc='best')
+            plt.xlabel('n_components');
+            unsup.fit(np.reshape(df,(-1,df.shape[1])))
+            regimes_prob = unsup.predict_proba(np.reshape(df,(-1,df.shape[1])))
+            #Predict posterior probability of each regime given the data.
+            probs = pd.DataFrame(regimes_prob)
+            probs
+            #predict each regime
+            regime = unsup.predict(np.reshape(df,(-1,df.shape[1])))
+            df['Return']= np.log(df['Close']/df['Close'].shift(1))
+            Regimes=pd.DataFrame(regime,columns=['Regime'],index=df.index).join(df, how='inner')
+            Regimes['market_cu_return']= Regimes.Return.cumsum()
+            Regimes
+            Regimes.reset_index(inplace=True)
+            Regimes['Vol'] = Regimes['Close'].rolling(20).std()
+            Regimes
+            order=[0,1,2,3]
+            fig = sns.FacetGrid(data=Regimes,hue='Regime',hue_order=order,aspect=2,size= 4)
+            fig.map(plt.scatter,'Date','Close', s=4).add_legend()
+            plt.show()
+            order=[0,1,2,3]
+            fig = sns.FacetGrid(data=Regimes,hue='Regime',hue_order=order,aspect=2,size= 4)
+            fig.map(plt.scatter,'Date','Vol', s=4).add_legend()
+            plt.show()
+            Regime = Regimes[['Regime']]
+            df.drop(['Return'], axis = 1, inplace = True)
+            df['State'] = Regime[['Regime']].values
+        
+        GaussianMixtureStates(n_components = 4,
+        covariance_type="spherical", 
+        n_init=100, 
+        random_state=42)
+        
+StateMeasures(method = 'gaussianmixture')
+df.info()
+df['State'].value_counts()
+
+
+#Split dataset into 6(3/3) for ML appications
+train_ratio = 0.75
+validation_ratio = 0.15
+test_ratio = 0.10
+X_train, X_test, y_train, y_test = train_test_split(df.iloc[:, 0:5], df.iloc[:, 5:6], test_size = 1 - train_ratio, shuffle = False)
+X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size = test_ratio/(test_ratio + validation_ratio), shuffle = False) 
+
+#Check for state inclusion
+y_train['State'].value_counts()
+y_val['State'].value_counts()
+y_test['State'].value_counts()
+
+
+#Data Preprocessing - methods: standarization vs normalization
+#scaler_model = preprocessing.StandardScaler().fit(X_train)
+#X_train = scaler_model.transform(X_train)
+#X_val = scaler_model.transform(X_val)
+#X_test = scaler_model.transform(X_test)
+
+#scaler = Normalizer()
+#print(scaler.fit(df))
+#print(scaler.mean_)
+
+
+#Create and fit ML
+knn = KNeighborsClassifier()
+model = knn.fit(X_train, y_train)
+y_pred = model.predict(X_val)
+
+#Check scores on Validation dataset
+accuracy_val = accuracy_score(y_val, y_pred)
+print ('Validation_data Accuracy: %.2f' %accuracy_val)
+confusion_matrix(y_val, y_pred)
+
+
+
+#Optimization of ML
+def objective(trial):
+          
+      n_neighbours = trial.suggest_int('n_neighbours', 2, 100)
+      weights = trial.suggest_categorical("weights", ["uniform", "distance"])
+      algorithm = trial.suggest_categorical('algorithms', ['auto', 'ball_tree', 'kd_tree', 'brute'])
+      leaf_size = trial.suggest_int('leaf_size', 1, 100)
+      metric = trial.suggest_categorical('metric', ['euclidean', 'manhattan', 'minkowski'])
+      
+      opt_knn = KNeighborsClassifier(n_neighbors = n_neighbours, 
+                                     weights = weights, 
+                                     algorithm = algorithm, 
+                                     leaf_size = leaf_size, 
+                                     metric = metric)
+      
+      #Return most accurate model within train data
+      score = sklearn.model_selection.cross_val_score(opt_knn, X_train, y_train, n_jobs=-1, cv=3)
+      accuracy = score.mean()
+      return accuracy
+  
+
+study = optuna.create_study(direction = "maximize", 
+                            sampler = optuna.samplers.TPESampler())
+
+'''
+Tree-structured Parzen Estimator algorithm implemented in optuna.samplers.TPESampler
+CMA-ES based algorithm implemented in optuna.samplers.CmaEsSampler
+Grid Search implemented in optuna.samplers.GridSampler
+Random Search implemented in optuna.samplers.RandomSampler
+'''
+
+study.optimize(objective, n_trials = 100, timeout = 100)
+
+#Check and visualize scores of Optimization on Train dataset
+print(study.best_trial)
+print(study.best_value)
+print(study.best_params)
+optuna.visualization.plot_optimization_history(study).show()
+optuna.visualization.plot_param_importances(study).show()
+optuna.visualization.plot_edf(study).show()
+
+
+
+#Apply optimized algorithm to Validation dataset
+opt_knn = KNeighborsClassifier(n_neighbors = 2, 
+                               weights = 'distance', 
+                               algorithm = 'auto', 
+                               leaf_size = 11, 
+                               metric = 'manhattan')
+
+
+opt_model = opt_knn.fit(X_train, y_train)
+y_pred = opt_model.predict(X_val)
+
+#Check scores on Validation dataset
+accuracy_val = accuracy_score(y_val, y_pred)
+print ('Validation_data Accuracy: %.2f' %accuracy_val)
+confusion_matrix(y_val, y_pred)
+
+
+#Proceed to apply final prefered algorithm on unseen Test dataset 
+final_knn = KNeighborsClassifier(n_neighbors = 2, 
+                               weights = 'distance', 
+                               algorithm = 'brute', 
+                               leaf_size = 56, 
+                               metric = 'minkowski')
+
+# Combine Train + Validation data to use as 1 set of training data
+X_train = [X_train, X_val]
+X_train = pd.concat(X_train)
+X_train.head()
+y_train = [y_train, y_val]
+y_train = pd.concat(y_train)
+y_train.head()
+
+final_model = final_knn.fit(X_train, y_train)
+y_pred = final_model.predict(X_test)
+
+#Check scores on Testing dataset
+accuracy_test = accuracy_score(y_test, y_pred)
+print ('Test_data Accuracy: %.2f' %accuracy_test)
+confusion_matrix(y_test, y_pred)
+
+
+
+#Plot of true and predicted States on testing data
+X_test['index'] = X_test.index
+ggplot() + geom_line(aes(x= X_test['index'], y= X_test['Close'], colour = y_test['State'])) + geom_line(aes(x= X_test['index'], y= X_test['Close']*2, colour = y_pred))
+
+
+'''Significant Problems:
+    
+    - States are too spread out. Therefore when datasets are split, 
+    ML fitted to training data will not be able to predict testing data as 
+    they both have completly different states. 
+    - Overfitting from lack of dynamism in states. Their solid and clear structure
+    does not enable the ML to account for their changes.
+    - Amount of data as problem and solution.
+    - Cross-Validation 
+    - Data modification
+    
+Other comments:
+    
+    - possibility of AutoML use (increased automation but takes other risks)
+    - Confidence Intervals
+    - no technical indicators
+    
+'''
+

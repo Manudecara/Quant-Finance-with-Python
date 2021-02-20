@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Feb  7 15:13:40 2021
+
+@author: manu
+"""
+
+
+from psaw import PushshiftAPI
+import datetime
+import pandas as pd
+import requests
+import re
+from collections import Counter
+import matplotlib.pyplot as plt
+
+api = PushshiftAPI()
+posted_after = int(datetime.datetime(2021, 2, 18).timestamp())
+#posted_before = int(datetime.datetime(2021, 2, 18).timestamp())
+
+query = api.search_submissions(subreddit='wallstreetbets', 
+                               after=posted_after, 
+                               #before=posted_before, 
+                               filter=['created_utc', 'id', 'author', 'author_premium', 'url', 'title', 'score', 'upvote_ratio', 'subreddit'],
+                               limit=20000)
+
+submissions = list()
+for element in query:
+    submissions.append(element.d_)
+    
+r_titles = pd.DataFrame(submissions)
+r_titles['datetime'] = r_titles['created_utc'].map(lambda t: datetime.datetime.fromtimestamp(t))
+r_titles = r_titles.drop('created_utc', axis=1)
+r_titles = r_titles.sort_values(by='datetime')
+r_titles.index = r_titles['datetime']
+r_titles.info()
+
+#IF YOU WANT TO REMOVE THOSE ROWS WITHOUT '$'
+#f = lambda x: len(x["title"].split("$")) -1
+#df["assets"] = df.apply(f, axis=1)
+#df = df[['id', 'author', 'author_premium', 'url', 'title', 'score', 'upvote_ratio', 'assets']]
+#df = df[df['assets'] !=0]
+
+
+words = r_titles['title']
+words = pd.DataFrame(r_titles.title.str.split(' ').tolist(), index = r_titles.index)
+words = words.stack().reset_index()
+cashtags = list(set(filter(lambda x: x.lower().startswith('$'), words.iloc[:,2])))
+def deEmojify(cashtags):
+    regrex_pattern = re.compile(pattern = "["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+                           "]+", flags = re.UNICODE)
+    return regrex_pattern.sub(r'', cashtags)
+
+cashtags = deEmojify(str(cashtags))
+cashtags = list(cashtags.split(','))
+cashtags = pd.DataFrame(cashtags)
+cashtags['assets'] = cashtags.iloc[:,0].astype(str)
+cashtags = cashtags[['assets']]
+cashtags.info()
+cashtags["assets"]
+cashtags["assets"] = cashtags["assets"].str.replace("['!@#%^&*(){};:,’./”<>?\|`~=_+]", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("\\", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("[", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("]", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("'", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("-", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("[0-9]", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("[a-z]", " ")
+cashtags["assets"] = cashtags["assets"].str.replace('$', '')
+cashtags["assets"] = cashtags["assets"].str.replace(" ", "")
+nan_value = float("NaN")
+cashtags["assets"] = cashtags["assets"].replace("", nan_value)
+cashtags = cashtags.dropna()
+cashtags["assets"]
+titles = cashtags["assets"]
+titles
+titles_count = comments.value_counts()
+titles_count   
+
+
+
+from psaw import PushshiftAPI
+import datetime
+import pandas as pd
+import requests
+import re
+
+api = PushshiftAPI()
+posted_after = int(datetime.datetime(2021, 2, 18).timestamp())
+
+query = api.search_comments(subreddit = 'wallstreetbets', 
+                               after = posted_after,
+                               filter=['created_utc', 'body', 'score'])
+
+submissions = list()
+for element in query:
+    submissions.append(element.d_)
+
+r_comments = pd.DataFrame(submissions)
+r_comments['datetime'] = r_comments['created_utc'].map(lambda t: datetime.datetime.fromtimestamp(t))
+r_comments = r_comments.drop('created_utc', axis=1)
+r_comments = r_comments.sort_values(by='datetime')
+r_comments.index = r_comments['datetime']
+r_comments.info()
+
+words = r_comments['body']
+words = pd.DataFrame(r_comments.body.str.split(' ').tolist(), index = r_comments.index)
+words = words.stack().reset_index()
+cashtags = list(set(filter(lambda x: x.lower().startswith('$'), words.iloc[:,2])))
+def deEmojify(cashtags):
+    regrex_pattern = re.compile(pattern = "["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+                           "]+", flags = re.UNICODE)
+    return regrex_pattern.sub(r'', cashtags)
+
+cashtags = deEmojify(str(cashtags))
+#remove '[' & ']' from string
+cashtags = list(cashtags.split(','))
+cashtags = pd.DataFrame(cashtags)
+cashtags['assets'] = cashtags.iloc[:,0].astype(str)
+cashtags = cashtags[['assets']]
+cashtags.info()
+cashtags["assets"]
+cashtags["assets"] = cashtags["assets"].str.replace("['!@#%^&*(){};:,’./”<>?\|`~=_+]", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("\\", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("[", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("]", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("'", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("-", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("[0-9]", " ")
+cashtags["assets"] = cashtags["assets"].str.replace("[a-z]", " ")
+cashtags["assets"] = cashtags["assets"].str.replace('$', '')
+cashtags["assets"] = cashtags["assets"].str.replace(" ", "")
+nan_value = float("NaN")
+cashtags["assets"] = cashtags["assets"].replace("", nan_value)
+cashtags = cashtags.dropna()
+cashtags["assets"]
+comments = cashtags["assets"]
+comments
+comments_count = comments.value_counts()
+comments_count    
+
+
+df = pd.concat([titles, comments], axis = 0) 
+df_count = df.value_counts()
+
+
+fig = plt.figure()
+ax = fig.add_axes([0,0,1,1])
+assets = df_count.index[0:16]
+count = df_count.values[0:16]
+ax.bar(assets, count)
+plt.show()
+
+
+complete = pd.DataFrame(df_count)
+complete['stocks'] = complete.index
+
+complete = list(complete['stocks'])
+
+
+list(GME,DNN,AMC,ROPE,PLUG,RIDE,TLRY,BB,APHA,RKT,MARA,PLTR,
+AMD,MM,HYLN,EBON,RIOT,BFLY,ON,CCIV,XPEV,PINS,GUH,NXTD,GOEV,
+NAKD,GSAT,WING,CAN,TSLA,NOK,ONTX,DKNG,AMZN,HEPA,CCL,STOCK,JAGX,
+CRSR,HTR,SOS,EH,BNET,NXE,VLDR,PDAC,VALEA,OCGN,BA,GNGR,BSFUK,BEP,
+DMTK,HYSR,FOMO,AF,SKLZ,DENN,SEED,PROM,CLIF,RSCF,PNG,WMD,NIO,SNAP,
+SNDL,BYD,SI,SKYNET,AYTU,APRN,SCI,MOM,HD,PAVM,DPW,FNF,NOOSE,CMPS,FRX,
+PEP,SGAMY,CRK,AFMV,ARB,NSAV,YCHT,GEVO,CODE,BRKA,USWS,GOOGL,MM,COMB,
+BLR,VXX,NECK,UVXY,ASRT,SAC,VISL,AAPLC,TGT,CPG,IPOK,IBKR,NOVN,PSLV,
+VZ,PAPA,XYZ,ESPR,UATGG,TWLO,ADBE,FSR,NVDA,FNGS,SCR,WCOM,WM,MILE,ZOM,
+REAL,HEXO,SJM,CRO,TSNP,AABB,DVN,BEAM,ADDYY,HVBTF,NVCN,GGL,LODE,SBBP,
+EUSP,WKHS,MED,QS,SLV,CODX,IMNM,TRCH,IPOG,WOODI,ADOM,GNRC,AGTC,BANG,
+SENS,CCJ,RVVTF,CASH,BABA,DIS,ARBKF,NAK,IDEX,EXPC,IPOJ,TARD,SKT,TLT,
+SEARS,WBA,QUIK,COCK,LOTZ,HUYA,PENN,MICT,UNH,TEDIT,EXPI,GME,GIK,LD,
+SRMX,ROPING,HCMC,GELYY,ZNGA,CRSP,ARK,ASTI,SAD,MBTNF,BLUE,ABBV,TXMD,
+BGS,RIDET,MKTY,RMO,ZBRA,TSM,SKTB,BH,IPOL,UAVS,GAYMF,GMET,CLSN,
+IPOH,LDI,SHRT,GXGX,DMGI,COC,BLN,NKLA,EVFM,CIDM,ACTC,MT,NCLH,
+ATNF,SONO,HOTH,MVIS,MGI,OPEN,COST,MEGA,GB,SHOP,KHC,FCEL,SPOT,PSLV,
+MINDMED,JRSS,BBBY,JNJ,MSOS,AG,SGHK,SEC,ACRX,BITF,YTD,GUN,TCEHY,
+SPY,SNOW,OSK,ICLN,FUTU,ARKGUH,WFC,TIGR,USO,BAN,DIAMOND,BREZR,C,TRXC,
+CRQE,FB,LIGMA,INTC,SESN,MSFT,BBI,VALE,CLFT,GNLN,ERIC,ARKK,DFV,
+JAMES,WMT,TSCRF,RXT,KOS,CATHOR,WAPT,RYCEY,AAPL,CORN,NEXE,MOMO,KRKNF,
+IPOM,APHRIA,WMT,TENDIES,AMAT,MXC,COPE,IPOI,GEO,HSCHF,QCOM,CTXR,BZTI,
+FLT,GHVI,LEGOU,CTHOR,POWW,GNOG,ARD,ALTU,AAL,NICE,DFK,IBM,BW)
+
+
+
+

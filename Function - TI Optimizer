@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Jan 21 14:38:28 2021
+
+@author: manu
+"""
+
+#General
+from datetime import datetime
+from pandas_datareader import data as pdr
+from collections import Counter
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns 
+from plotnine import *
+
+#Technical Indicators
+import talib as ta
+
+#General Sklearn
+from sklearn.model_selection import train_test_split
+import sklearn.model_selection
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn import preprocessing
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import Normalizer
+
+#Optimization
+from hyperopt import hp, tpe, fmin, Trials
+import optuna
+from optuna.visualization import plot_edf
+from optuna.visualization import plot_intermediate_values
+from optuna.visualization import plot_optimization_history
+from optuna.visualization import plot_param_importances
+
+
+#Get Data
+df = pdr.DataReader("ETH-USD",  "yahoo", datetime(2014,1,1), datetime(2021,1,1))
+df.head()
+df.info()
+df = df[~df.index.duplicated()]
+df['Volume'] = df['Volume'].astype(float)
+df['Volume'] = df['Volume']/1000
+df = df[['High','Low','Open','Close', 'Volume']]
+
+
+def signals(df, period_ti1, period_ti2, threshold_1, threshold_2):
+  period_ti1 = int(period_ti1)
+  period_ti2 = int(period_ti2)
+  df['ti1'] = ta.EMA(df['Close'], timeperiod = period_ti1)
+  df['ti2'] = ta.RSI(df['Close'], timeperiod = period_ti2)
+  df.dropna(inplace=True)
+  df['Sig'] = 0
+  #Long when Close is under EMA and RSI is below threshold
+  df['Sig'][((df['Close'] < df['ti1']) & (df['ti2'] < threshold_1))] = 1 
+  #Short when Close is above EMA and RSI is above threshold
+  df['Sig'][((df['Close'] > df['ti1']) & (df['ti2'] > threshold_2))] = -1 
+  #Exit/Hold trade when Close crosses the EMA
+  df['Sig'][((df['Close'] - df['ti1'] == 0))] = 0  
+  
+  #Plot of Strategy
+  ax1 = df[['Close','ti1', "ti2"]].plot(figsize=(10,5))
+  ax1.plot(df[df['Sig'] == 1.0].index,
+           df[df['Sig'] == 1.0].Close,
+           '^', markersize=10, color='g')
+  ax1.plot(df[df['Sig'] == -1.0].index,
+           df[df['Sig'] == -1.0].Close,
+           'v', markersize=10, color='r')
+  fig = ax1.get_figure()
+  ax1.legend(('ETH/USD', 'Sig'))
+  fig.suptitle(f"{period_ti1} Period ti1, {period_ti2} Period ti2")
+  fig.show()
+  return df['Sig'].value_counts()
+    
+signals(df, 125, 80, 88, 32)
+signals(df, 50, 10, 30, 70)
+signals(df, 100, 15, 30, 70)
+signals(df, 150, 20, 30, 70)
+
+#Returns = np.log(df['Close'] / df['Close'].shift(1))
+
+def simulate(df, period_ti1, period_ti2, threshold_1, threshold_2):
+  eth = 1000
+  usd = 0.0
+  for i,row in df.iterrows():
+    if eth > 0 and row['Sig'] == 1:
+      usd = eth / row['Close']
+      eth = 0.0
+    if usd > 0 and row['Sig'] == -1:
+      eth = usd * row['Close']
+      usd = 0.0
+  final = eth + usd * df['Close'][-1]
+  return final
+
+# a wrapper just for convenience that takes a
+# dictionary of parameters as passed by hyperopt
+# and passes in the parameter we want to the simulation
+# it also negates the return value as hyperopt is designed
+# to find the MINIMUM value
+def wrapper(params):
+  period_ti1 = params['period_ti1']
+  period_ti2 = params['period_ti2']
+  threshold_1 = params['threshold_1']
+  threshold_2 = params['threshold_2']
+
+  return -simulate(df, period_ti1, period_ti2, threshold_1, threshold_2)
+
+# The search space, in this case just a single parameter
+# that goes from 1 to 200 in steps of 1
+space = {
+  'period_ti1': hp.quniform('period_ti1', 1, 200, 1),
+  'period_ti2': hp.quniform('period_ti2', 1, 200, 1),
+  'threshold_1': hp.quniform('threshold_1', 1, 100, 1),
+  'threshold_2': hp.quniform('threshold_2', 1, 100, 1),
+  }
+
+# The trials object is a database to hold the results in
+trials = Trials()
+
+# The actual call to hyperopt to do the optimisation
+best = fmin(wrapper,
+  space=space,
+  algo=tpe.suggest,
+  max_evals=50,
+  trials=trials)
+
+print(best)
+
+
+#Optimization of strategy
+def objective(trial):
+          
+      period_ti1 = trial.suggest_int('period_ti1', 2, 200)
+      period_ti2 = trial.suggest_int('period_ti2', 2, 40)
+      threshold_1 = trial.suggest_int('threshold_1', 1, 100)
+      threshold_2 = trial.suggest_int('threshold_2', 1, 100)
+      
+      opt_strategy = signals(df = df,
+                             period_ti1 = period_ti1,
+                             period_ti2 = period_ti2,
+                             threshold_1 = threshold_1,
+                             threshold_2 = threshold_2)
+      
+      #Return most profitable strategy within data
+      score = sklearn.model_selection.cross_val_score(opt_strategy, df, Returns, n_jobs=-1, cv=3)
+      accuracy = score.mean()
+      return accuracy
+  
+
+study = optuna.create_study(direction = "maximize", sampler = optuna.samplers.TPESampler())
+study.optimize(objective, n_trials = 100, timeout = 100)
+
+
+
+
+

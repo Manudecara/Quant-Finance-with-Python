@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Feb 19 14:45:02 2021
+
+@author: manu
+"""
+
+#General
+from datetime import datetime
+from pandas_datareader import data as pdr
+from collections import Counter
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns 
+from plotnine import *
+
+#General Sklearn
+from sklearn.model_selection import train_test_split
+import sklearn.model_selection
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn import preprocessing
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import Normalizer
+from sklearn.decomposition import PCA
+
+#Unsupervised Learning 
+from sklearn import mixture as mix
+from sklearn.mixture import GaussianMixture
+
+#Supervised Learning
+#Random Forest
+import sklearn.ensemble
+from sklearn.ensemble import RandomForestClassifier
+
+#Optuna
+import optuna
+from optuna.visualization import plot_edf
+from optuna.visualization import plot_intermediate_values
+from optuna.visualization import plot_optimization_history
+from optuna.visualization import plot_param_importances
+
+#Get Data
+df = pd.read_csv('~/Quant Finance/OakTree & Lion/BTCFinal.csv')
+df.index = df['date']
+df.index = pd.to_datetime(df.index)
+df = df.drop(columns = 'date')
+df.info()
+df = df[['open', 'high', 'low', 'close', 'Volume BTC', 'Volume USD', 
+         'market_cap', 'NVT', 'NVRV', 'NVHR', 'NVML', 'NVOL', 
+         'implied price', 'google_trend_bitcoin']]
+df = df.dropna()
+df = df.shift(-1) 
+df = df.dropna()
+
+
+#Define a method to identify Market 'States'
+def StateMeasures(method):
+    
+    if (method == 'manual'):
+        def ManualStates(data, style, variable, days, days_character, date, t1, t2):
+           df['Up_Trend'] = ((variable.pct_change(freq = days_character) * 100) > t1)
+           df['Up_Trend'] = df['Up_Trend'].shift(-1) 
+           df['Up_Trend'] = df['Up_Trend'].replace(np.nan, False)
+           df['Up_Trend'] = df['Up_Trend'].astype(int)
+           df['Dn_Trend'] = ((variable.pct_change(freq = days_character) * 100) < t2)
+           df['Dn_Trend'] = df['Dn_Trend'].shift(-1) 
+           df['Dn_Trend'] = df['Dn_Trend'].replace(np.nan, False)
+           df['Dn_Trend'] = df['Dn_Trend'].astype(int)
+           df['State'] = 'stable'
+           df['State'][(df['Up_Trend'] == 1)] = 'uptrend'
+           df['State'][(df['Dn_Trend'] == 1)] = 'downtrend'
+           df['State'][(df['Up_Trend'] + df['Dn_Trend']) == 4] = 'stable'
+           print(df['State'].value_counts())
+           df.drop(['Up_Trend', 'Dn_Trend'], axis = 1, inplace = True)
+           df.info()
+                
+        ManualStates(data = df,
+        style = 'range',
+        variable = df['close'],
+        days = 1,
+        days_character = '5D',
+        date = df.index,
+        t1 = 5,
+        t2 = -5)
+    
+    elif (method == 'gaussianmixture'):    
+        def GaussianMixtureStates(n_components, covariance_type, n_init, random_state):
+            unsup = mix.GaussianMixture(n_components = n_components, 
+                                        covariance_type = covariance_type, 
+                                        n_init = n_init, 
+                                        random_state = random_state)
+            X = df.values.reshape(-1, 1)
+            n_components = np.arange(1, 21)
+            models = [GaussianMixture(n, covariance_type = covariance_type, random_state = random_state).fit(X)
+            for n in n_components]
+            plt.plot(n_components, [m.bic(X) for m in models], label='BIC')
+            plt.plot(n_components, [m.aic(X) for m in models], label='AIC')
+            plt.legend(loc='best')
+            plt.xlabel('n_components');
+            unsup.fit(np.reshape(df,(-1,df.shape[1])))
+            regimes_prob = unsup.predict_proba(np.reshape(df,(-1,df.shape[1])))
+            #Predict posterior probability of each regime given the data.
+            probs = pd.DataFrame(regimes_prob)
+            probs
+            #predict each regime
+            regime = unsup.predict(np.reshape(df,(-1,df.shape[1])))
+            df['Return']= np.log(df['Close']/df['Close'].shift(1))
+            Regimes=pd.DataFrame(regime,columns=['Regime'],index=df.index).join(df, how='inner')
+            Regimes['market_cu_return']= Regimes.Return.cumsum()
+            Regimes
+            Regimes.reset_index(inplace=True)
+            Regimes['Vol'] = Regimes['Close'].rolling(20).std()
+            Regimes
+            order=[0,1,2,3]
+            fig = sns.FacetGrid(data=Regimes,hue='Regime',hue_order=order,aspect=2,size= 4)
+            fig.map(plt.scatter,'Date','Close', s=4).add_legend()
+            plt.show()
+            order=[0,1,2,3]
+            fig = sns.FacetGrid(data=Regimes,hue='Regime',hue_order=order,aspect=2,size= 4)
+            fig.map(plt.scatter,'Date','Vol', s=4).add_legend()
+            plt.show()
+            Regime = Regimes[['Regime']]
+            df.drop(['Return'], axis = 1, inplace = True)
+            df['State'] = Regime[['Regime']].values
+        
+        GaussianMixtureStates(n_components = 4,
+        covariance_type="spherical", 
+        n_init=100, 
+        random_state=42)
+        
+StateMeasures(method = 'manual')
+df.info()
+df['State'].value_counts()
+
+# Standardizing the features
+X = pd.DataFrame(StandardScaler().fit_transform(df.iloc[:, 0:14]))
+X.columns = df.iloc[:, 0:14].columns
+y = df.iloc[:, 14:15]
+
+#PCA
+pca = PCA(n_components=2)
+principalComponents = pca.fit_transform(X)
+X = pd.DataFrame(data = principalComponents, columns = ['pca1', 'pca2'])
+X.index = y.index
+frames = [X, y]
+df = pd.concat(frames, axis=1)
+
+#Visualize PCA
+fig = plt.figure(figsize = (8,8))
+ax = fig.add_subplot(1,1,1) 
+ax.set_xlabel('pca1', fontsize = 15)
+ax.set_ylabel('pca2', fontsize = 15)
+ax.set_title('2 component PCA', fontsize = 20)
+states = ['downtrend', 'uptrend', 'stable']
+colors = ['r', 'g', 'b']
+
+for state, color in zip(states, colors):
+    indicesToKeep = df['State'] == state
+    ax.scatter(df.loc[indicesToKeep, 'pca1'], 
+               df.loc[indicesToKeep, 'pca2'],            
+               c = color, 
+               s = 50)
+ax.legend(states)
+ax.grid()
+
+pca.explained_variance_ratio_
+
+
+#Split dataset into 6(3/3) for ML appications
+train_ratio = 0.75
+validation_ratio = 0.15
+test_ratio = 0.10
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 1 - train_ratio, shuffle = False)
+X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size = test_ratio/(test_ratio + validation_ratio), shuffle = False) 
+
+#Check for state inclusion
+y_train['State'].value_counts()
+y_val['State'].value_counts()
+y_test['State'].value_counts()
+
+
+#Create and fit ML
+rfc = RandomForestClassifier()
+model = rfc.fit(X_train, y_train)
+y_pred = model.predict(X_val)
+
+#Check scores on Validation dataset
+accuracy_val = accuracy_score(y_val, y_pred)
+print ('Validation_data Accuracy: %.2f' %accuracy_val)
+confusion_matrix(y_val, y_pred)
+
+
+#Optimization of ML
+def objective(trial):
+          
+      n_estimators = trial.suggest_int('n_estimators', 1, 200)
+      criterion = trial.suggest_categorical("criterion", ["gini", "entropy"])
+      max_depth = trial.suggest_int('max_depth', 1, 50)
+      max_features = trial.suggest_categorical('max_features', ['auto', 'sqrt', 'log2'])
+      
+      opt_rfc = RandomForestClassifier(n_estimators = n_estimators,
+                                       criterion = criterion, 
+                                       max_depth = max_depth, 
+                                       max_features = max_features)
+      #Pruning
+      for step in range(100):
+        opt_rfc.fit(X_train, y_train)
+        
+        # Report intermediate objective value.
+        intermediate_value = opt_rfc.score(X_val, y_val)
+        trial.report(intermediate_value, step)
+
+        # Handle pruning based on the intermediate value.
+        if trial.should_prune():
+            raise optuna.TrialPruned()
+        return intermediate_value
+  
+
+study = optuna.create_study(direction = "maximize", 
+                            sampler = optuna.samplers.TPESampler())
+
+study.optimize(objective, n_trials = 150, timeout = 100)
+
+#Check and visualize scores of Optimization on Train dataset
+print(study.best_trial)
+print(study.best_value)
+print(study.best_params)
+pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
+complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+print("  Number of finished trials: ", len(study.trials))
+print("  Number of pruned trials: ", len(pruned_trials))
+print("  Number of complete trials: ", len(complete_trials))
+optuna.visualization.plot_optimization_history(study).show()
+optuna.visualization.plot_param_importances(study).show()
+optuna.visualization.plot_edf(study).show()
+
+
+#Apply optimized algorithm to Validation dataset
+opt_rfc = RandomForestClassifier(n_estimators = 140, 
+                                 criterion = 'entropy', 
+                                 max_depth = 4, 
+                                 max_features = 'sqrt')
+
+opt_model = opt_rfc.fit(X_train, y_train)
+y_pred = opt_model.predict(X_val)
+
+#Check scores on Validation dataset
+accuracy_val = accuracy_score(y_val, y_pred)
+print ('Validation_data Accuracy: %.2f' %accuracy_val)
+confusion_matrix(y_val, y_pred)
+
+
+#Proceed to apply final prefered algorithm on unseen Test dataset 
+final_rfc = RandomForestClassifier(n_estimators = 140, 
+                                   criterion = 'entropy', 
+                                   max_depth = 4, 
+                                   max_features = 'sqrt')
+
+#Combine Train + Validation data to use as 1 set of training data
+X_train = [X_train, X_val]
+X_train = pd.concat(X_train)
+X_train.head()
+y_train = [y_train, y_val]
+y_train = pd.concat(y_train)
+y_train.head()
+
+final_model = final_rfc.fit(X_train, y_train)
+y_pred = final_model.predict(X_test)
+y_pred = pd.DataFrame(y_pred)
+
+#Check scores on Validation dataset
+accuracy_test = accuracy_score(y_test, y_pred)
+print ('Test_data Accuracy: %.2f' %accuracy_test)
+confusion_matrix(y_test, y_pred)
+
+#Plot of true and predicted States on testing data
+X_test['index'] = X_test.index
+ggplot() + geom_line(aes(x= X_test['index'], y= X_test['close'], colour = y_test['State'])) + geom_line(aes(x= X_test['index'], y= X_test['close']*2, colour = y_pred))
+
+

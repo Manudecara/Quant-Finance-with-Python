@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Dec 23 15:19:40 2020
+
+@author: manu
+"""
+
+import pandas as pd
+import numpy as np
+import scipy as sc
+import sklearn as skl
+from plotnine import *
+from datetime import datetime
+from pandas_datareader import data as pdr
+from collections import Counter
+import matplotlib.pyplot as plt
+
+
+data = pdr.DataReader("BTC-USD",  "yahoo", datetime(2014,1,1), datetime(2020,12,23))
+data.head()
+data.info()
+data['index'] = data.index
+data['index'][data['index'].duplicated()]
+data = data[~data['index'].duplicated()]
+data['Volume'] = data['Volume'].astype(float)
+data['Volume'] = data['Volume']/1000
+#data.replace([np.inf, -np.inf], np.nan).dropna()
+
+ggplot(aes(x= data['index'], y= data['Close'])) + geom_line()
+ggplot(aes(x= data['index'], y= data['Volume'])) + geom_line()
+
+data['100_SMA'] = data['Close'].rolling(window=100).mean()
+data['200_SMA'] = data['Close'].rolling(window=200).mean()
+plot = ggplot() + geom_line(aes(x= data['index'], y= data['Close'])) + geom_line(aes(x= data['index'], y= data['100_SMA'], colour = data['100_SMA'])) + geom_line(aes(x= data['index'], y= data['200_SMA'], colour = data['200_SMA']))
+plot
+
+
+''' 
+WHAT MEASURE IS BEST FOR OBJECTIVELY IDENTIFYING A MARKET STATE? 
+
+This is what will be used to train the ML algorithms afterwards... so identification has to be good. 
+Also, since we don't have reinforcement learning yet, it has to be done manually.
+
+THOUGHTS:
+What makes a market state? 
+3 days where price is up? or 1? or 20? do they have to be consecutive days? or perhaps a range? 
+what about technical indicators (TI's)? don't they sacrifice too much accuracy? (example: MA-Crossover, is it too lagged?)
+They might be better for ML algorithms to learn with... but for now we want ACCURACY.
+So: Many ways to measure for 'states'.
+
+Aproaches used here: 1. consecutive 2. non-consecutive 3. many different range aproaches 
+
+Either way, we don't know what approach the ML algorithms will outperform, so we could later optimize. 
+
+ABOUT THE 1ST FUNCTION
+This is a function that takes in different parameters to construct market trends with different measuring styles
+
+PARAMETERS: 
+data - dataframe, HLOCV data (as floats)
+style - for now: "consecutive" days, "non-consecutive" days & "range" style approach 
+variable - variable user wishes to analyse 'trendiness' of
+days - amount of days that make a trend
+t1 - max value of percentage change in the range
+t2 - min value of percentage change in the range
+OUTPUT - graph + frequency of each trend state: 2 - stable, 1 - downtrend, 3 - uptrend
+
+'''
+
+def Trend_Measurement(data, style, variable, days, days_character, date, t1, t2):
+    if (style == 'consecutive'):
+        if (days == 1): 
+            data['Up_Trend'] = variable > variable.shift(1) 
+            data['Up_Trend'] = data['Up_Trend'].shift(-1) 
+            data['Up_Trend'] = data['Up_Trend'].replace(np.nan, False)
+            data['Up_Trend'] = data['Up_Trend'].astype(int) 
+            data['Dn_Trend'] = variable < variable.shift(1)
+            data['Dn_Trend'] = data['Dn_Trend'].shift(-1) 
+            data['Dn_Trend'] = data['Dn_Trend'].replace(np.nan, False)
+            data['Dn_Trend'] = data['Dn_Trend'].astype(int)  
+            data['Trend'] = 2
+            data['Trend'][(data['Up_Trend'] == 1)] = 3
+            data['Trend'][(data['Dn_Trend'] == 1)] = 1
+            data['Trend'][(data['Up_Trend'] + data['Dn_Trend']) == 4] = 2
+            print(data['Trend'].value_counts())
+            plot = ggplot() + geom_line(aes(x= date, y= variable, colour = data['Trend']))
+            return plot
+        
+        elif (days == 2): 
+            data['Up_Trend'] = ((variable > variable.shift(1)) & (variable > variable.shift(2)) & (variable.shift(1) > variable.shift(2)))
+            data['Up_Trend'] = data['Up_Trend'].shift(-1) 
+            data['Up_Trend'] = data['Up_Trend'].replace(np.nan, False)
+            data['Up_Trend'] = data['Up_Trend'].astype(int)            
+            data['Dn_Trend'] = ((variable < variable.shift(1)) & (variable < variable.shift(2)) & (variable.shift(1) < variable.shift(2)))
+            data['Dn_Trend'] = data['Dn_Trend'].shift(-1) 
+            data['Dn_Trend'] = data['Dn_Trend'].replace(np.nan, False)
+            data['Dn_Trend'] = data['Dn_Trend'].astype(int)            
+            data['Trend'] = 2
+            data['Trend'][(data['Up_Trend'] == 1)] = 3
+            data['Trend'][(data['Dn_Trend'] == 1)] = 1
+            data['Trend'][(data['Up_Trend'] + data['Dn_Trend']) == 4] = 2
+            print(data['Trend'].value_counts())
+            plot = ggplot() + geom_line(aes(x= date, y= variable, colour = data['Trend']))
+            return plot
+        
+        elif (days == 3): 
+            data['Up_Trend'] = ((variable > variable.shift(1)) & (variable > variable.shift(2)) & (variable > variable.shift(3)) & (variable.shift(1) > variable.shift(2)) & (variable.shift(1) > variable.shift(3)) & (variable.shift(2) > variable.shift(3)))            
+            data['Up_Trend'] = data['Up_Trend'].shift(-1) 
+            data['Up_Trend'] = data['Up_Trend'].replace(np.nan, False)
+            data['Up_Trend'] = data['Up_Trend'].astype(int)                     
+            data['Dn_Trend'] = ((variable < variable.shift(1)) & (variable < variable.shift(2)) & (variable < variable.shift(3)) & (variable.shift(1) < variable.shift(2)) & (variable.shift(1) < variable.shift(3)) & (variable.shift(2) < variable.shift(3)))            
+            data['Dn_Trend'] = data['Dn_Trend'].shift(-1) 
+            data['Dn_Trend'] = data['Dn_Trend'].replace(np.nan, False)
+            data['Dn_Trend'] = data['Dn_Trend'].astype(int)                 
+            data['Trend'] = 2
+            data['Trend'][(data['Up_Trend'] == 1)] = 3
+            data['Trend'][(data['Dn_Trend'] == 1)] = 1
+            data['Trend'][(data['Up_Trend'] + data['Dn_Trend']) == 4] = 2
+            print(data['Trend'].value_counts())
+            plot = ggplot() + geom_line(aes(x= date, y= variable, colour = data['Trend']))
+            return plot
+
+    elif (style == 'non-consecutive'):
+            data['Up_Trend'] = variable > variable.shift(days) 
+            data['Up_Trend'] = data['Up_Trend'].shift(-1) 
+            data['Up_Trend'] = data['Up_Trend'].replace(np.nan, False)
+            data['Up_Trend'] = data['Up_Trend'].astype(int)
+            data['Dn_Trend'] = variable < variable.shift(days)
+            data['Dn_Trend'] = data['Dn_Trend'].shift(-1) 
+            data['Dn_Trend'] = data['Dn_Trend'].replace(np.nan, False)
+            data['Dn_Trend'] = data['Dn_Trend'].astype(int)
+            data['Trend'] = 2
+            data['Trend'][(data['Up_Trend'] == 1)] = 3
+            data['Trend'][(data['Dn_Trend'] == 1)] = 1
+            data['Trend'][(data['Up_Trend'] + data['Dn_Trend']) == 4] = 2
+            print(data['Trend'].value_counts())
+            plot = ggplot() + geom_line(aes(x= date, y= variable, colour = data['Trend']))
+            return plot
+ 
+    elif (style == 'range'):
+            data['Up_Trend'] = ((variable.pct_change(freq = days_character) * 100) > t1)
+            data['Up_Trend'] = data['Up_Trend'].shift(-1) 
+            data['Up_Trend'] = data['Up_Trend'].replace(np.nan, False)
+            data['Up_Trend'] = data['Up_Trend'].astype(int)
+            data['Dn_Trend'] = ((variable.pct_change(freq = days_character) * 100) < t2)
+            data['Dn_Trend'] = data['Dn_Trend'].shift(-1) 
+            data['Dn_Trend'] = data['Dn_Trend'].replace(np.nan, False)
+            data['Dn_Trend'] = data['Dn_Trend'].astype(int)
+            data['Trend'] = 2
+            data['Trend'][(data['Up_Trend'] == 1)] = 3
+            data['Trend'][(data['Dn_Trend'] == 1)] = 1
+            data['Trend'][(data['Up_Trend'] + data['Dn_Trend']) == 4] = 2
+            print(data['Trend'].value_counts())
+            plot = ggplot() + geom_line(aes(x= date, y= variable, colour = data['Trend']))
+            return plot
+
+
+Trend_Measurement(data = data,
+                  style = 'range',
+                  variable = data['Close'],
+                  days = 1,
+                  days_character = '5D',
+                  date = data['index'].iloc[1600:1800],
+                  t1 = 5,
+                  t2 = -5)
+
+
+'''ABOUT THE 2ND FUNCTION
+This is a function that takes in different parameters to construct market volatility states with different measuring styles
+
+PARAMETERS: 
+data - dataframe, HLOCV data (as floats)
+style - for now: "pct_range" days, & "mid_range" style approach 
+variable - variable user wishes to analyse volatility of
+days - non-consecutive days for which the absolute value is be calculated for
+days_character - calculates percentage change in the previously calculated absolute difference over specified days
+date - index of dates user wishes to see in plot
+t1 - max value of percentage change 
+t2 - min value of percentage change 
+OUTPUT - graph + descriptive statistics of each trend + frequency of each trend state: 2 - stable, 1 - downtrend, 3 - uptrend
+'''
+
+def Vol_Measurement(data, style, variable, days, days_character, date, t1, t2):
+    if (style == 'pct_range'):
+        data['Diff_Vol'] = (abs(variable - variable.shift(days))) * 10 
+        data['High_Vol'] = (data['Diff_Vol'].pct_change(freq = days_character) * 100) > t1
+        data['High_Vol'] = data['High_Vol'].shift(-1) 
+        data['High_Vol'] = data['High_Vol'].replace(np.nan, False)
+        data['High_Vol'] = data['High_Vol'].astype(int)
+        data['Low_Vol'] = (data['Diff_Vol'].pct_change(freq = days_character) * 100) < t2
+        data['Low_Vol'] = data['Low_Vol'].shift(-1) 
+        data['Low_Vol'] = data['Low_Vol'].replace(np.nan, False)
+        data['Low_Vol'] = data['Low_Vol'].astype(int)
+        data['Normal_Vol'] = ((data['Diff_Vol'].pct_change(freq = days_character) * 100) > t2) & ((data['Diff_Vol'].pct_change(freq = '5D') * 100) < t1)
+        data['Normal_Vol'] = data['Normal_Vol'].shift(-1) 
+        data['Normal_Vol'] = data['Normal_Vol'].replace(np.nan, False)
+        data['Normal_Vol'] = data['Normal_Vol'].astype(int)
+        data['State_Vol'] = 2
+        data['State_Vol'][(data['High_Vol'] == 1)] = 3
+        data['State_Vol'][(data['Low_Vol'] == 1)] = 1
+        data['State_Vol'][(data['Normal_Vol'] == 1)] = 2
+        data['State_Vol'][(data['High_Vol'] + data['Low_Vol']) == 4] = 2
+        print(data['High_Vol'].mean())
+        print(data['Normal_Vol'].mean())
+        print(data['Low_Vol'].mean())
+        print(data['State_Vol'].value_counts())
+        plot = ggplot() + geom_line(aes(x= date, y= variable, colour = data['State_Vol']))
+        return plot
+    
+    elif (style == 'mid_range'):
+        data['Mid_Point'] = ((variable + variable.shift(days))/2)
+        data['High_Vol'] = variable > data['Mid_Point']
+        data['High_Vol'] = data['High_Vol'].shift(-1) 
+        data['High_Vol'] = data['High_Vol'].replace(np.nan, False)
+        data['High_Vol'] = data['High_Vol'].astype(int)
+        data['High_Vol'] = variable < data['Mid_Point']
+        data['Low_Vol'] = data['Low_Vol'].shift(-1) 
+        data['Low_Vol'] = data['Low_Vol'].replace(np.nan, False)
+        data['Low_Vol'] = data['Low_Vol'].astype(int)
+        data['State_Vol'] = 2
+        data['State_Vol'][(data['High_Vol'] == 1)] = 3
+        data['State_Vol'][(data['Low_Vol'] == 1)] = 1
+        data['State_Vol'][(data['High_Vol'] + data['Low_Vol']) == 4] = 2
+        print(data['High_Vol'].mean())
+        print(data['Low_Vol'].mean())
+        print(data['State_Vol'].value_counts())
+        plot = ggplot() + geom_line(aes(x= date, y= variable, colour = data['State_Vol']))
+        return plot
+        
+    
+Vol_Measurement(data = data,
+                  style = 'pct_range',
+                  variable = data['Close'],
+                  days = 1,
+                  days_character = '1D',
+                  date = data['index'].iloc[0:200],
+                  t1 = 20,
+                  t2 = -60)
+        
+
+
+'''CONCLUSION:
+    
+for now the functions only measure consecutive, non-consecutive and 'range' styles of trendiness & volatility.
+I think the "consecutive" approach works better with Price due to it's 'stable' stage inclusion 
+and the "pct_range" apprcoach for the Volume variable mainly due the variable's constant breakouts... 
+which is why a necessary adjustment over however many days by percentage seems less risky and more accurate.  
+
+Final thoughts:
+    
+- After we combine these results into one final column which judges which regime
+the market is at (price up_trend vs dn_trend & high volatility vs low volatility) for the ML 
+algortihms to run on, we could include TI's as parameters for higher "credibility" of regime. 
+Example: VWAP? but before or with ML?
+
+- Worry from amount of data for ML
+len(data)
+'''
+
+
+

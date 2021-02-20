@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jan 27 18:46:56 2021
+
+@author: manu
+"""
+
+
+import requests
+from requests import get
+from bs4 import BeautifulSoup
+import pandas as pd
+import numpy as np
+from time import sleep
+from random import randint
+
+#headers = {"Accept-Language": "en-US,en;q=0.5"}
+titles = []
+subtitles = []
+dates = []
+pages = np.arange(1, 29)
+
+for page in pages: 
+
+  page = requests.get("https://www.ft.com/bitcoin?page=" + str(page))
+                      #, headers=headers)
+  soup = BeautifulSoup(page.text, 'html.parser')
+  scrapes = soup.find_all('li', class_='o-teaser-collection__item o-grid-row')
+  scrapes
+  sleep(randint(2,10))
+
+  for scrape in scrapes:
+      date = scrape.find('div', class_='stream-card__date')
+      title = scrape.find('a', class_='js-teaser-heading-link')
+      subtitle = scrape.find('a', class_='js-teaser-standfirst-link')
+      
+      if None in (date, title, subtitle):
+          continue
+      dates.append(date.text.strip())
+      titles.append(title.text.strip())
+      subtitles.append(subtitle.text.strip())
+
+      #print(titles.text.strip())
+      #print(subtitles.text.strip())
+      #print(dates.text.strip())
+      #print()
+
+ft_data = pd.DataFrame({
+'titles': titles,
+'subtitles': subtitles,
+'dates': dates
+})
+
+ft_data.index = ft_data['dates'] 
+ft_data = ft_data[["titles", "subtitles"]]
+print(ft_data)
+print(ft_data.dtypes)
+print(ft_data.isnull().sum())
+
+
+
+

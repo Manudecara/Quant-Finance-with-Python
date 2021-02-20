@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jan 29 10:47:28 2021
+
+@author: manu
+"""
+
+
+
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import numpy as np
+from time import sleep
+from random import randint
+
+titles = []
+subtitles = []
+dates = []
+pages = np.arange(1, 5)
+
+for page in pages: 
+    page = requests.get("https://www.coindesk.com/search?q=bitcoin&s=relevant&f=") 
+    soup = BeautifulSoup(page.text, 'html.parser')
+    soup
+    scrapes = soup.find_all('li', class_='o-teaser-collection__item o-grid-row')
+    #sleep(randint(2,10))
+    scrapes
+    
+    for scrape in scrapes:
+        date = scrape.find('time', class_='time')
+        title = scrape.find('h4', class_='heading')
+        subtitle = scrape.find('p', class_='card-text')
+        if None in (date, title, subtitle):
+            continue
+        dates.append(date.text.strip())
+        titles.append(title.text.strip())
+        subtitles.append(subtitle.text.strip())
+
+      #print(titles.text.strip())
+      #print(subtitles.text.strip())
+      #print(dates.text.strip())
+      #print()
+
+coindesk_data = pd.DataFrame({
+'titles': titles,
+'subtitles': subtitles,
+'dates': dates
+})
+
+coindesk_data.index = coindesk_data['dates'] 
+coindesk_data = coindesk_data[["titles", "subtitles"]]
+print(coindesk_data)
+print(coindesk_data.dtypes)
+print(coindesk_data.isnull().sum())
